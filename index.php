@@ -38,14 +38,17 @@ function getDirContents($dir, $baseDir, $ignore) {
         $relPath = str_replace($baseDir . DIRECTORY_SEPARATOR, '', $filePath);
         $relPath = str_replace('\\', '/', $relPath);
         
-        $size = $isDir ? '' : formatBytes(filesize($filePath));
-        
+        $sizeRaw = $isDir ? 0 : filesize($filePath);
+        $mtimeRaw = filemtime($filePath);
+
         $files[] = [
             'name' => $file,
             'path' => $relPath,
             'isDir' => $isDir,
-            'mtime' => date('d.m.Y H:i', filemtime($filePath)),
-            'size' => $size,
+            'mtime' => date('d.m.Y H:i', $mtimeRaw),
+            'mtime_raw' => $mtimeRaw, 
+            'size' => $isDir ? '' : formatBytes($sizeRaw),
+            'size_raw' => $sizeRaw,
             'ext' => strtolower(pathinfo($file, PATHINFO_EXTENSION))
         ];
     }
@@ -79,19 +82,27 @@ if (isset($_GET['ajax'])) {
 $globalFiles = getAllFilesRecursive($baseDir, $baseDir, $ignore);
 $currentFiles = getDirContents($realDir, $baseDir, $ignore);
 
-// Breadcrumb HTML für den initialen Aufruf generieren (mit sicherer Pfad-Übergabe)
-$breadcrumbHtml = '<a href="#" class="crumb-link" onclick="loadDirectory(\'\', event)">Home</a>';
+// SVG für das Haus-Icon
+$homeSvg = '<svg viewBox="0 0 24 24" class="home-icon"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>';
+
+// --- HIER DAS WORT ÄNDERN (z.B. in "Start" oder "Übersicht") ---
+$rootName = 'Home'; 
+
+// Breadcrumb HTML für den initialen Aufruf generieren
+$breadcrumbHtml = '<a href="#" class="crumb-link home-crumb" onclick="loadDirectory(\'\', event)">' . $homeSvg . ' ' . $rootName . '</a>';
 if ($currentDir != '') {
     $parts = explode('/', $currentDir);
     $path = '';
     foreach ($parts as $part) {
         $path .= ($path === '' ? '' : '/') . $part;
-        $jsPath = json_encode($path); // JSON.stringify verhindert Fehler bei Leerzeichen/Sonderzeichen
+        $jsPath = json_encode($path);
         $breadcrumbHtml .= '<span class="crumb-separator">/</span>';
-        // Wichtig: Einfache Anführungszeichen um das onclick, um Konflikte mit dem JSON zu vermeiden
         $breadcrumbHtml .= '<a href="#" class="crumb-link" onclick=\'loadDirectory(' . $jsPath . ', event)\'>' . htmlspecialchars($part) . '</a>';
     }
 }
+
+// Klasse für den Home-Zustand bestimmen
+$rootClass = ($currentDir === '') ? 'is-root' : '';
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -173,37 +184,6 @@ if ($currentDir != '') {
             align-items: center;
             flex: 1;
             min-width: 0;
-            gap: 0.75rem;
-        }
-
-        /* Der neue Home-Button */
-        .home-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
-            transition: all 0.2s ease;
-            flex-shrink: 0;
-            text-decoration: none;
-        }
-
-        .home-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: scale(1.05);
-        }
-
-        .home-btn svg {
-            width: 18px;
-            height: 18px;
-            stroke: currentColor;
-            stroke-width: 2;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
         }
 
         .breadcrumbs {
@@ -227,11 +207,26 @@ if ($currentDir != '') {
             padding: 0.2rem 0.4rem;
             border-radius: 4px;
             transition: background 0.2s, color 0.2s;
+            display: inline-flex;
+            align-items: center;
         }
 
         .crumb-link:hover {
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
+        }
+
+        .home-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 6px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            position: relative;
+            top: -1px;
         }
 
         .crumb-link:last-child {
@@ -240,9 +235,24 @@ if ($currentDir != '') {
             pointer-events: none;
         }
 
+        .is-root .breadcrumbs {
+            font-size: 1.35rem;
+        }
+        
+        .is-root .home-icon {
+            width: 22px;
+            height: 22px;
+            margin-right: 8px;
+        }
+
+        .is-root .home-crumb {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
         .crumb-separator {
             color: #64748b;
-            margin: 0 0.2rem;
+            margin: 0 0.3rem;
             font-size: 0.9rem;
         }
 
@@ -260,12 +270,15 @@ if ($currentDir != '') {
             padding: 1.5rem 2rem;
             border-bottom: 1px solid var(--border-color);
             background: var(--container-bg);
+            display: flex;
+            gap: 1rem;
         }
 
         .search-wrapper {
             position: relative;
             display: flex;
             align-items: center;
+            flex: 1;
         }
 
         .search-icon {
@@ -294,6 +307,29 @@ if ($currentDir != '') {
         
         #searchInput:focus + .search-icon {
             color: var(--primary);
+        }
+
+        .sort-select {
+            padding: 0.8rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            background-color: #ffffff;
+            color: var(--text-main);
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 10px;
+            padding-right: 2.5rem;
+        }
+
+        .sort-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.15);
         }
 
         .list-wrapper {
@@ -332,6 +368,18 @@ if ($currentDir != '') {
 
         .file-row:hover {
             background-color: var(--hover-bg);
+        }
+
+        .is-folder-row {
+            background-color: rgba(255, 255, 255, 0.4);
+        }
+        
+        .is-folder-row:hover {
+            background-color: var(--hover-bg);
+        }
+        
+        .is-folder-row .file-name {
+            font-weight: 600;
         }
 
         .file-left {
@@ -513,6 +561,7 @@ if ($currentDir != '') {
             background-color: #e0f2fe !important;
             color: var(--primary) !important;
             font-weight: 600;
+            border-bottom: 1px solid #bae6fd !important;
         }
         .back-link:hover {
             background-color: #bae6fd !important;
@@ -537,11 +586,56 @@ if ($currentDir != '') {
             border-top: 1px solid var(--border-color);
         }
 
-        /* Mobile / Tablet */
+        .scroll-top-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 44px;
+            height: 44px;
+            background-color: var(--header-bg);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+
+        .scroll-top-btn.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .scroll-top-btn:hover {
+            background-color: var(--primary);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+
+        .scroll-top-btn svg {
+            width: 24px;
+            height: 24px;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
         @media (max-width: 768px) {
             body { padding: 1rem; }
             header { flex-direction: column; gap: 0.5rem; text-align: left; align-items: flex-start; }
             .header-left { width: 100%; }
+            .search-container { flex-direction: column; gap: 0.5rem; }
+            .sort-select { width: 100%; }
         }
         @media (max-width: 600px) {
             body { padding: 0; background-color: var(--bg-color); }
@@ -550,19 +644,15 @@ if ($currentDir != '') {
             .file-row { padding: 0.8rem 1rem; }
             .file-date, .file-size, .placeholder { display: none; } 
             .file-path-hint { display: flex; }
+            .scroll-top-btn { bottom: 1rem; right: 1rem; }
         }
     </style>
 </head>
 <body>
 
-<div class="container">
+<div class="container <?php echo $rootClass; ?>" id="appContainer">
     <header>
         <div class="header-left">
-            <!-- Der klickbare Home-Button (ersetzt das statische Ordner-Icon) -->
-            <a href="#" class="home-btn" onclick="loadDirectory('', event)" title="Zum Hauptverzeichnis">
-                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-            </a>
-            
             <div class="breadcrumbs" id="breadcrumbs">
                 <?php echo $breadcrumbHtml; ?>
             </div>
@@ -573,8 +663,13 @@ if ($currentDir != '') {
     <div class="search-container">
         <div class="search-wrapper">
             <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="searchInput" name="search" placeholder="Nach Dateinamen suchen (auch in Unterordnern)...">
+            <input type="text" id="searchInput" name="search" placeholder="Nach Dateinamen suchen...">
         </div>
+        <select id="sortSelect" class="sort-select">
+            <option value="name-asc">Name (A-Z)</option>
+            <option value="date-desc">Neueste zuerst</option>
+            <option value="size-desc">Größte zuerst</option>
+        </select>
     </div>
 
     <div class="list-wrapper">
@@ -587,19 +682,30 @@ if ($currentDir != '') {
     </footer>
 </div>
 
+<button class="scroll-top-btn" id="scrollTopBtn" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+    <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+</button>
+
 <script>
     const allFiles = <?php echo json_encode($globalFiles); ?>;
+    const rootName = '<?php echo $rootName; ?>'; 
     
     let state = {
         currentDir: '<?php echo $currentDir; ?>',
         currentFiles: <?php echo json_encode($currentFiles); ?>,
-        isSearching: false
+        isSearching: false,
+        sortCriteria: 'name-asc'
     };
 
+    const appContainer = document.getElementById('appContainer');
     const fileListEl = document.getElementById('fileList');
     const breadcrumbsEl = document.getElementById('breadcrumbs');
     const noResultsEl = document.getElementById('noResults');
     const searchInput = document.getElementById('searchInput');
+    const sortSelect = document.getElementById('sortSelect');
+    const scrollTopBtn = document.getElementById('scrollTopBtn');
+
+    const homeSvg = `<svg viewBox="0 0 24 24" class="home-icon"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
 
     function updateClock() {
         const now = new Date();
@@ -610,17 +716,26 @@ if ($currentDir != '') {
     updateClock();
     setInterval(updateClock, 1000);
 
+    window.addEventListener('scroll', () => {
+        if (window.scrollY > 300) {
+            scrollTopBtn.classList.add('show');
+        } else {
+            scrollTopBtn.classList.remove('show');
+        }
+    });
+
     function updateBreadcrumbs(currentDir) {
-        let html = `<a href="#" class="crumb-link" onclick="loadDirectory('', event)">Home</a>`;
+        appContainer.classList.toggle('is-root', currentDir === '');
+
+        let html = `<a href="#" class="crumb-link home-crumb" onclick="loadDirectory('', event)">${homeSvg} ${rootName}</a>`;
         
         if (currentDir !== '') {
             const parts = currentDir.split('/');
             let path = '';
             parts.forEach(part => {
                 path += (path === '' ? '' : '/') + part;
-                const jsPath = JSON.stringify(path); // Sichere Übergabe des Pfades
+                const jsPath = JSON.stringify(path);
                 html += `<span class="crumb-separator">/</span>`;
-                // Einfache Anführungszeichen für das onclick Attribut
                 html += `<a href="#" class="crumb-link" onclick='loadDirectory(${jsPath}, event)'>${part}</a>`;
             });
         }
@@ -630,6 +745,22 @@ if ($currentDir != '') {
         setTimeout(() => {
             breadcrumbsEl.scrollLeft = breadcrumbsEl.scrollWidth;
         }, 10);
+    }
+
+    function sortFiles(files, criteria) {
+        return files.sort((a, b) => {
+            if (a.isDir && !b.isDir) return -1;
+            if (!a.isDir && b.isDir) return 1;
+            
+            if (criteria === 'name-asc') {
+                return a.name.localeCompare(b.name);
+            } else if (criteria === 'date-desc') {
+                return b.mtime_raw - a.mtime_raw;
+            } else if (criteria === 'size-desc') {
+                return b.size_raw - a.size_raw;
+            }
+            return 0;
+        });
     }
 
     function getIconSVG(item) {
@@ -734,13 +865,14 @@ if ($currentDir != '') {
             let dateHTML = `<span class="file-date">${item.mtime}</span>`;
             let sizeHTML = '';
             let buttonHTML = '';
+            let rowClass = 'file-row';
 
             if (item.isDir) {
                 rowClickAction = `onclick="loadDirectory('${item.path}', event)"`;
                 sizeHTML = `<span class="placeholder"></span>`;
                 buttonHTML = `<span class="placeholder-btn"></span>`;
+                rowClass += ' is-folder-row'; 
             } else {
-                // Dateien öffnen sich nun immer in einem neuen Tab
                 rowClickAction = `onclick="window.open('${item.path}', '_blank')"`;
                 sizeHTML = `<span class="file-size">${item.size}</span>`;
                 buttonHTML = `
@@ -751,7 +883,7 @@ if ($currentDir != '') {
             }
 
             li.innerHTML = `
-                <div class="file-row" ${rowClickAction}>
+                <div class="${rowClass}" ${rowClickAction}>
                     <div class="file-left">
                         <span class="icon ${iconClass}">${iconSvg}</span>
                         <span class="file-info">
@@ -770,6 +902,22 @@ if ($currentDir != '') {
         });
     }
 
+    function renderCurrentView() {
+        let filesToRender = state.isSearching ? allFiles.filter(file => {
+            const term = searchInput.value.toLowerCase().trim();
+            const text = (file.name + ' ' + file.path).toLowerCase();
+            return text.includes(term);
+        }) : [...state.currentFiles];
+
+        filesToRender = sortFiles(filesToRender, state.sortCriteria);
+        renderList(filesToRender, state.isSearching);
+    }
+
+    sortSelect.addEventListener('change', function() {
+        state.sortCriteria = this.value;
+        renderCurrentView();
+    });
+
     async function loadDirectory(dir, event) {
         if (event) event.preventDefault();
         
@@ -779,7 +927,6 @@ if ($currentDir != '') {
         fileListEl.classList.add('is-loading');
         
         try {
-            // Der Pfad wird hier nur EINMAL URL-kodiert
             const response = await fetch(`?ajax=1&dir=${encodeURIComponent(dir)}`);
             const data = await response.json();
             
@@ -789,7 +936,7 @@ if ($currentDir != '') {
             updateBreadcrumbs(data.currentDir);
             
             setTimeout(() => {
-                renderList(state.currentFiles, false);
+                renderCurrentView();
                 fileListEl.classList.remove('is-loading');
             }, 150); 
             
@@ -806,7 +953,7 @@ if ($currentDir != '') {
             if (state.isSearching) {
                 state.isSearching = false;
                 updateBreadcrumbs(state.currentDir);
-                renderList(state.currentFiles, false);
+                renderCurrentView();
             }
             return;
         }
@@ -814,15 +961,10 @@ if ($currentDir != '') {
         state.isSearching = true;
         breadcrumbsEl.innerHTML = '<span class="crumb-link" style="color: #fff; pointer-events: none;">Suchergebnisse</span>';
         
-        const filtered = allFiles.filter(file => {
-            const text = (file.name + ' ' + file.path).toLowerCase();
-            return text.includes(term);
-        });
-
-        renderList(filtered, true);
+        renderCurrentView();
     });
 
-    renderList(state.currentFiles, false);
+    renderCurrentView();
     
     setTimeout(() => {
         breadcrumbsEl.scrollLeft = breadcrumbsEl.scrollWidth;
@@ -831,4 +973,3 @@ if ($currentDir != '') {
 
 </body>
 </html>
-t
